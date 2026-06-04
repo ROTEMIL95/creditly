@@ -1,0 +1,126 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { api, apiError } from '../../../lib/api';
+import { useAuth } from '../../../lib/auth';
+
+interface Detail {
+  account: {
+    id: string;
+    customerName: string;
+    phone: string;
+    email: string;
+    status: string;
+    amount: number;
+    isHighActivity: boolean;
+    manager?: { name: string };
+  };
+  auctions: { id: string; status: string; endsAt: string }[];
+  events: { id: string; type: string; createdAt: string }[];
+}
+
+export default function AccountDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
+  const [data, setData] = useState<Detail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    api
+      .get(`/accounts/${id}`)
+      .then((res) => setData(res.data))
+      .catch((err) => setError(apiError(err)))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) return router.replace('/login');
+    load();
+  }, [user, authLoading, router, load]);
+
+  async function openAuction() {
+    setBusy(true);
+    setError('');
+    try {
+      await api.post(`/accounts/${id}/auctions`);
+      load();
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) return <p className="text-slate-500">Loading…</p>;
+  if (error) return <p className="rounded bg-red-50 px-3 py-2 text-red-700">{error}</p>;
+  if (!data) return null;
+
+  const { account, auctions, events } = data;
+  const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const hasOpenAuction = auctions.some((a) => a.status === 'OPEN');
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-slate-200 bg-white p-6">
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">{account.customerName}</h1>
+            <p className="text-sm text-slate-500">
+              {account.email} · {account.phone}
+            </p>
+          </div>
+          {account.isHighActivity && (
+            <span className="rounded bg-amber-100 px-2 py-1 text-sm text-amber-800">High Activity</span>
+          )}
+        </div>
+        <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <div><dt className="text-slate-400">Status</dt><dd className="font-medium">{account.status}</dd></div>
+          <div><dt className="text-slate-400">Amount</dt><dd className="font-medium">${account.amount.toLocaleString()}</dd></div>
+          <div><dt className="text-slate-400">Manager</dt><dd className="font-medium">{account.manager?.name ?? '—'}</dd></div>
+        </dl>
+        {canManage && !hasOpenAuction && (
+          <button
+            onClick={openAuction}
+            disabled={busy}
+            className="mt-4 rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {busy ? 'Opening…' : 'Open auction'}
+          </button>
+        )}
+      </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-6">
+        <h2 className="mb-3 font-semibold">Auctions</h2>
+        {auctions.length === 0 ? (
+          <p className="text-sm text-slate-400">No auctions.</p>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {auctions.map((a) => (
+              <li key={a.id} className="flex justify-between rounded border border-slate-100 px-3 py-2">
+                <span className="font-mono text-xs text-slate-500">{a.id}</span>
+                <span>{a.status}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-6">
+        <h2 className="mb-3 font-semibold">Events</h2>
+        <ul className="space-y-1 text-sm">
+          {events.map((e) => (
+            <li key={e.id} className="flex justify-between border-b border-slate-50 py-1">
+              <span className="font-medium">{e.type}</span>
+              <span className="text-slate-400">{new Date(e.createdAt).toLocaleString()}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}

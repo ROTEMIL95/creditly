@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+**/node_modules/
+
+# env (ignore all .env variants, keep the *.example templates)
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.local.example
+
+# build output
+dist/
+**/dist/
+.next/
+**/.next/
+
+# prisma
+backend/prisma/*.db
+
+# logs
+*.log
+npm-debug.log*
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# test coverage
+coverage/
+**/coverage/
+
+# playwright mcp artifacts
+.playwright-mcp/
+**/.playwright-mcp/

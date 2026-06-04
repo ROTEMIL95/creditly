@@ -1,0 +1,200 @@
+// Creditly — Prisma schema
+// Conventions: all enum values UPPERCASE (match TS); timestamps @db.Timestamptz(6),
+// never rounded (auction tie-break depends on submission order).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums (UPPERCASE)
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  MANAGER
+  USER
+  BANKER
+}
+
+enum AccountStatus {
+  ACTIVE
+  IN_AUCTION
+  WON
+  CLOSED
+}
+
+enum AuctionStatus {
+  OPEN
+  CLOSED
+  EXPIRED
+  WON
+}
+
+enum EventType {
+  DOCUMENT_UPLOADED
+  STATUS_CHANGED
+  NOTE_ADDED
+  AUCTION_OPENED
+  OFFER_SUBMITTED
+  AUCTION_CLOSED
+}
+
+enum SyncTrigger {
+  STATUS_CHANGED
+  DOCUMENT_UPLOADED
+  AUCTION_OPENED
+  WINNING_OFFER_SELECTED
+}
+
+enum SyncStatus {
+  SUCCESS
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role
+
+  // Bankers belong to a bank; other roles leave this null.
+  bank   Bank?   @relation(fields: [bankId], references: [id])
+  bankId String?
+
+  managedAccounts Account[]              @relation("AccountManager")
+  createdEvents   Event[]                @relation("EventCreator")
+  openedAuctions  AuctionOpportunity[]   @relation("AuctionOpener")
+  offers          BankOffer[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+}
+
+model Bank {
+  id   String @id @default(cuid())
+  name String @unique
+
+  // Simple eligibility: a bank only sees auctions for accounts whose amount >= minAmount.
+  minAmount Decimal @default(0) @db.Decimal(14, 2)
+
+  users  User[]
+  offers BankOffer[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+}
+
+model Account {
+  id           String        @id @default(cuid())
+  // PII — never exposed to BANKER (masked by role-aware serializer).
+  customerName String
+  phone        String
+  email        String
+  status       AccountStatus @default(ACTIVE)
+
+  // Eligibility driver for banker auction matching.
+  amount Decimal @default(0) @db.Decimal(14, 2)
+
+  manager   User   @relation("AccountManager", fields: [managerId], references: [id])
+  managerId String
+
+  isHighActivity Boolean   @default(false)
+  lastActivity   DateTime? @db.Timestamptz(6)
+
+  events   Event[]
+  auctions AuctionOpportunity[]
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+}
+
+model Event {
+  id        String    @id @default(cuid())
+  type      EventType
+  payload   Json?
+
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId String
+
+  createdBy   User   @relation("EventCreator", fields: [createdById], references: [id])
+  createdById String
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([accountId, createdAt])
+}
+
+model AuctionOpportunity {
+  id     String        @id @default(cuid())
+  status AuctionStatus @default(OPEN)
+
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId String
+
+  openedBy   User   @relation("AuctionOpener", fields: [openedById], references: [id])
+  openedById String
+
+  startsAt DateTime @default(now()) @db.Timestamptz(6)
+  endsAt   DateTime @db.Timestamptz(6)
+
+  offers BankOffer[] @relation("AuctionOffers")
+
+  // Winner (set on close). Separate named relation to avoid cycle ambiguity.
+  winningOffer   BankOffer? @relation("WinningOffer", fields: [winningOfferId], references: [id])
+  winningOfferId String?    @unique
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([status, endsAt])
+}
+
+model BankOffer {
+  id           String  @id @default(cuid())
+  interestRate Decimal @db.Decimal(5, 2)
+  isWinner     Boolean @default(false)
+
+  auction   AuctionOpportunity @relation("AuctionOffers", fields: [auctionId], references: [id], onDelete: Cascade)
+  auctionId String
+
+  banker   User   @relation(fields: [bankerId], references: [id])
+  bankerId String
+
+  bank   Bank   @relation(fields: [bankId], references: [id])
+  bankId String
+
+  // Back-relation for the auction's winning offer.
+  wonAuction AuctionOpportunity? @relation("WinningOffer")
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  // Blind model: one offer per banker per auction (updatable while open).
+  @@unique([auctionId, bankerId])
+  @@index([auctionId, interestRate, createdAt])
+}
+
+model SyncLog {
+  id            String      @id @default(cuid())
+  trigger       SyncTrigger
+  status        SyncStatus
+  failureReason String?
+  attempts      Int         @default(1)
+  payload       Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+}
