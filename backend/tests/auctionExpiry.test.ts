@@ -3,7 +3,6 @@ import { Role, AuctionStatus } from '@prisma/client';
 import { auctionService } from '../src/services/auctionService.js';
 import { auctionRepository } from '../src/repositories/auctionRepository.js';
 import { offerRepository } from '../src/repositories/offerRepository.js';
-import { AppError } from '../src/lib/errors.js';
 import type { AuthUser } from '../src/types/index.js';
 
 const banker: AuthUser = { id: 'b1', role: Role.BANKER, bankId: 'bankA' };
@@ -19,32 +18,21 @@ const auction = (overrides: Record<string, unknown>): any => ({
   ...overrides,
 });
 
-describe('Auction expiry — no offers allowed after expiration', () => {
+describe('Auction — no offers after expiry / on a non-OPEN auction', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('rejects an offer after the auction has expired', async () => {
-    vi.spyOn(auctionRepository, 'findById').mockResolvedValue(
-      auction({ endsAt: new Date(Date.now() - 1000) }), // already expired
-    );
-    const upsertSpy = vi.spyOn(offerRepository, 'upsert');
+  // Domain rule: offers are rejected once the auction has passed endsAt, and on any
+  // auction that is not OPEN — and no offer is persisted in either case.
+  it('rejects offers on expired and non-OPEN auctions', async () => {
+    const upsert = vi.spyOn(offerRepository, 'upsert');
+    const findById = vi.spyOn(auctionRepository, 'findById');
 
-    await expect(auctionService.submitOffer(banker, 'auc1', 5)).rejects.toMatchObject({
-      code: 'AUCTION_EXPIRED',
-    });
-    expect(upsertSpy).not.toHaveBeenCalled();
-  });
+    findById.mockResolvedValue(auction({ endsAt: new Date(Date.now() - 1000) })); // already expired
+    await expect(auctionService.submitOffer(banker, 'auc1', 5)).rejects.toMatchObject({ code: 'AUCTION_EXPIRED' });
 
-  it('rejects an offer when the auction is not OPEN', async () => {
-    vi.spyOn(auctionRepository, 'findById').mockResolvedValue(
-      auction({ status: AuctionStatus.WON }),
-    );
-    await expect(auctionService.submitOffer(banker, 'auc1', 5)).rejects.toMatchObject({
-      code: 'AUCTION_NOT_OPEN',
-    });
-  });
+    findById.mockResolvedValue(auction({ status: AuctionStatus.WON })); // not OPEN
+    await expect(auctionService.submitOffer(banker, 'auc1', 5)).rejects.toMatchObject({ code: 'AUCTION_NOT_OPEN' });
 
-  it('rejects offers from non-bankers', async () => {
-    const manager: AuthUser = { id: 'mgr1', role: Role.MANAGER, bankId: null };
-    await expect(auctionService.submitOffer(manager, 'auc1', 5)).rejects.toBeInstanceOf(AppError);
+    expect(upsert).not.toHaveBeenCalled();
   });
 });

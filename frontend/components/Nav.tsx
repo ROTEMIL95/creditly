@@ -20,6 +20,11 @@ export function Nav() {
               Dashboard
             </Link>
           )}
+          {user && user.role === 'ADMIN' && (
+            <Link href="/audit" className="hover:text-indigo-700">
+              Audit
+            </Link>
+          )}
           {user && user.role !== 'BANKER' && (
             <Link href="/accounts" className="hover:text-indigo-700">
               Accounts

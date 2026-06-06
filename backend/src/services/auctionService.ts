@@ -124,6 +124,10 @@ async function submitOffer(user: AuthUser, auctionId: string, interestRate: numb
     throw new ForbiddenError('Your bank is not eligible for this auction');
   }
 
+  // Capture the prior rate (if any) so the audit trail shows the delta on an update.
+  const previous = await offerRepository.findByAuctionBanker(auctionId, user.id);
+  const previousRate = previous ? Number(previous.interestRate) : null;
+
   const offer = await offerRepository.upsert({
     auctionId,
     bankerId: user.id,
@@ -136,7 +140,13 @@ async function submitOffer(user: AuthUser, auctionId: string, interestRate: numb
     accountId: auction.accountId,
     type: EventType.OFFER_SUBMITTED,
     createdById: user.id,
-    payload: { auctionId, offerId: offer.id },
+    payload: {
+      auctionId,
+      offerId: offer.id,
+      interestRate,
+      bankId: user.bankId,
+      ...(previousRate != null ? { previousRate } : {}),
+    },
   });
 
   return offer;

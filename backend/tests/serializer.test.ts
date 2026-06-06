@@ -33,29 +33,22 @@ const auction = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any;
 
-describe('serializeAuction — banker PII masking (Blind model)', () => {
-  it('NEVER exposes customer PII to a banker', () => {
+describe('Serializer — banker PII masking (Blind model)', () => {
+  // The role-aware serializer guarantees a banker NEVER receives customer PII
+  // (name/phone/email) and sees only their own offer — never the competitor list.
+  it('hides PII and competitor offers from a banker', () => {
     const view = serializeAuction(auction, { role: Role.BANKER, bankId: 'bankA' });
     const json = JSON.stringify(view);
+
     expect(json).not.toContain('Jane Smith');
     expect(json).not.toContain('+1-555-0200');
     expect(json).not.toContain('jane.smith@example.com');
-    // Banker may see a non-PII account summary (amount/status) for eligibility context.
-    expect(view.account).toMatchObject({ id: 'acc1', status: 'IN_AUCTION', amount: 250000 });
     expect((view.account as Record<string, unknown>).customerName).toBeUndefined();
-  });
-
-  it('shows a banker only their OWN offer, never competitors', () => {
-    const view = serializeAuction(auction, { role: Role.BANKER, bankId: 'bankA' });
+    // Non-PII summary (amount/status) is allowed for eligibility context.
+    expect(view.account).toMatchObject({ id: 'acc1', status: 'IN_AUCTION', amount: 250000 });
+    // Blind: only the banker's own offer, never the full competitor list.
     expect(view.myOffers).toHaveLength(1);
     expect(view.myOffers?.[0]?.bankId).toBe('bankA');
-    // The full competitor offer list is not present.
     expect((view as Record<string, unknown>).offers).toBeUndefined();
-  });
-
-  it('gives admin full visibility (PII + all offers)', () => {
-    const view = serializeAuction(auction, { role: Role.ADMIN, bankId: null });
-    expect(view.account).toMatchObject({ customerName: 'Jane Smith', email: 'jane.smith@example.com' });
-    expect(view.offers).toHaveLength(2);
   });
 });

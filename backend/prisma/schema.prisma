@@ -61,6 +61,30 @@ enum SyncStatus {
   FAILED
 }
 
+// Comprehensive, human-readable audit trail (admin-only). Distinct from Event (domain
+// rules / per-account view) and SyncLog (CRM retry/ops): this is the single cross-cutting
+// log of who did what and when, including non-account actions like logins.
+enum AuditAction {
+  LOGIN_SUCCESS
+  LOGIN_FAILURE
+  OFFER_SUBMITTED
+  OFFER_UPDATED
+  AUCTION_OPENED
+  AUCTION_CLOSED
+  AUCTION_EXPIRED
+  STATUS_CHANGED
+  DOCUMENT_UPLOADED
+  NOTE_ADDED
+  CRM_SYNC
+}
+
+enum AuditEntity {
+  ACCOUNT
+  AUCTION
+  OFFER
+  SESSION
+}
+
 // ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
@@ -80,6 +104,7 @@ model User {
   createdEvents   Event[]                @relation("EventCreator")
   openedAuctions  AuctionOpportunity[]   @relation("AuctionOpener")
   offers          BankOffer[]
+  auditLogs       AuditLog[]
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
@@ -200,4 +225,27 @@ model SyncLog {
   createdAt DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([status, createdAt])
+}
+
+model AuditLog {
+  id     String      @id @default(cuid())
+  action AuditAction
+
+  // Who did it. Nullable: a failed login has no authenticated user (email kept separately).
+  actor      User?  @relation(fields: [actorId], references: [id])
+  actorId    String?
+  actorEmail String?
+  actorRole  Role?
+
+  // Optional subject of the action.
+  entityType AuditEntity?
+  entityId   String?
+
+  // Rich detail: { interestRate, previousRate, status, trigger, syncStatus, failureReason, note, ... }
+  metadata Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([createdAt])
+  @@index([action, createdAt])
 }

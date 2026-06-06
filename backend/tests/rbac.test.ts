@@ -26,24 +26,23 @@ const accountOwnedBy = (managerId: string): any => ({
   updatedAt: new Date(),
 });
 
-describe('RBAC enforcement (server-side)', () => {
+describe('RBAC enforcement (server-side, in the service layer)', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('forbids a banker from listing accounts', async () => {
+  // A banker has no route to customer data: accountService rejects both list and read.
+  it('forbids a BANKER from listing or reading accounts', async () => {
     await expect(accountService.list(banker)).rejects.toBeInstanceOf(ForbiddenError);
-  });
-
-  it('forbids a banker from reading an account directly', async () => {
     await expect(accountService.getById(banker, 'acc1')).rejects.toBeInstanceOf(ForbiddenError);
   });
 
-  it('forbids a manager from reading an account they do not manage', async () => {
-    vi.spyOn(accountRepository, 'findById').mockResolvedValue(accountOwnedBy('someone-else'));
-    await expect(accountService.getById(manager, 'acc1')).rejects.toBeInstanceOf(ForbiddenError);
-  });
+  // A manager is scoped to accounts they own: denied on others, allowed on their own.
+  it('scopes a MANAGER to accounts they own', async () => {
+    const findById = vi.spyOn(accountRepository, 'findById');
 
-  it('allows a manager to read an account they manage', async () => {
-    vi.spyOn(accountRepository, 'findById').mockResolvedValue(accountOwnedBy('mgr1'));
+    findById.mockResolvedValue(accountOwnedBy('someone-else'));
+    await expect(accountService.getById(manager, 'acc1')).rejects.toBeInstanceOf(ForbiddenError);
+
+    findById.mockResolvedValue(accountOwnedBy('mgr1'));
     vi.spyOn(eventRepository, 'listByAccount').mockResolvedValue([]);
     const { account } = await accountService.getById(manager, 'acc1');
     expect(account.id).toBe('acc1');
