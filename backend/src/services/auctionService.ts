@@ -206,10 +206,36 @@ async function finalizeAuction(
   } satisfies Prisma.InputJsonValue);
 }
 
+// ---- Expiry sweeper (Cloudflare Cron Trigger — see src/worker.ts) -----------
+
+// Closes every OPEN auction whose endsAt has passed. Reuses finalizeAuction, so a swept
+// auction follows the exact same path as a manual close: winner → WON + CRM sync, or no
+// offers → EXPIRED. One auction failing does not abort the rest of the batch.
+async function sweepExpiredAuctions(now: Date = new Date()): Promise<{ swept: number; failed: number }> {
+  const expired = await auctionRepository.findExpiredOpen(now);
+  let swept = 0;
+  let failed = 0;
+
+  for (const auction of expired) {
+    try {
+      // No interactive actor on a cron run — attribute the close to whoever opened it.
+      await finalizeAuction(auction.id, auction.accountId, auction.openedById);
+      swept += 1;
+    } catch (err) {
+      failed += 1;
+      // eslint-disable-next-line no-console
+      console.error(`[sweep] failed to finalize auction ${auction.id}:`, err);
+    }
+  }
+
+  return { swept, failed };
+}
+
 export const auctionService = {
   openAuction,
   listAuctions,
   getAuction,
   submitOffer,
   closeAuction,
+  sweepExpiredAuctions,
 };

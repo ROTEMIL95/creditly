@@ -1,7 +1,13 @@
-import 'dotenv/config';
 import { z } from 'zod';
+import { getBindings, isEdgeRuntime } from './runtime.js';
 
-// Validate environment at startup — fail fast with a clear message.
+// Node/test only: hydrate process.env from a local .env file. On edge runtimes there is
+// no filesystem and config arrives via bindings (see runtime.ts), so we skip dotenv there.
+if (!isEdgeRuntime()) {
+  await import('dotenv/config');
+}
+
+// Validate environment — fail fast with a clear message.
 const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 chars'),
@@ -17,13 +23,28 @@ const envSchema = z.object({
   CRM_RETRY_BASE_MS: z.coerce.number().int().min(0).default(100),
 });
 
-const parsed = envSchema.safeParse(process.env);
+export type Env = z.infer<typeof envSchema>;
 
-if (!parsed.success) {
-  // eslint-disable-next-line no-console
-  console.error('❌ Invalid environment configuration:', parsed.error.flatten().fieldErrors);
-  throw new Error('Invalid environment configuration');
+let cached: Env | undefined;
+
+function resolve(): Env {
+  if (cached) return cached;
+  const parsed = envSchema.safeParse(getBindings());
+  if (!parsed.success) {
+    // eslint-disable-next-line no-console
+    console.error('❌ Invalid environment configuration:', parsed.error.flatten().fieldErrors);
+    throw new Error('Invalid environment configuration');
+  }
+  cached = parsed.data;
+  return cached;
 }
 
-export const env = parsed.data;
-export type Env = typeof env;
+// Lazy, runtime-agnostic accessor. Backed by a Proxy so every existing `env.X` call site
+// keeps working unchanged, while resolution is deferred to first property read. On edge
+// that read happens mid-request — after setBindings() has injected the bindings.
+export const env: Env = new Proxy({} as Env, {
+  get: (_t, prop) => resolve()[prop as keyof Env],
+  has: (_t, prop) => prop in resolve(),
+  ownKeys: () => Reflect.ownKeys(resolve() as object),
+  getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
+});

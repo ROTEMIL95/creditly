@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api, apiError } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
+import { humanizeEnum } from '../../../lib/labels';
 
 interface Detail {
   account: {
@@ -79,7 +80,7 @@ export default function AccountDetailPage() {
           )}
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <div><dt className="text-slate-400">Status</dt><dd className="font-medium">{account.status}</dd></div>
+          <div><dt className="text-slate-400">Status</dt><dd className="font-medium">{humanizeEnum(account.status)}</dd></div>
           <div><dt className="text-slate-400">Amount</dt><dd className="font-medium">${account.amount.toLocaleString()}</dd></div>
           <div><dt className="text-slate-400">Manager</dt><dd className="font-medium">{account.manager?.name ?? '—'}</dd></div>
         </dl>
@@ -102,8 +103,8 @@ export default function AccountDetailPage() {
           <ul className="space-y-2 text-sm">
             {auctions.map((a) => (
               <li key={a.id} className="flex justify-between rounded border border-slate-100 px-3 py-2">
-                <span className="font-mono text-xs text-slate-500">{a.id}</span>
-                <span>{a.status}</span>
+                <span className="text-slate-600">Auction · ends {new Date(a.endsAt).toLocaleDateString()}</span>
+                <span className="font-medium">{humanizeEnum(a.status)}</span>
               </li>
             ))}
           </ul>
@@ -115,7 +116,7 @@ export default function AccountDetailPage() {
         <ul className="space-y-1 text-sm">
           {events.map((e) => (
             <li key={e.id} className="flex justify-between border-b border-slate-50 py-1">
-              <span className="font-medium">{e.type}</span>
+              <span className="font-medium">{humanizeEnum(e.type)}</span>
               <span className="text-slate-400">{new Date(e.createdAt).toLocaleString()}</span>
             </li>
           ))}

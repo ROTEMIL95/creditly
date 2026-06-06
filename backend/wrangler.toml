@@ -1,0 +1,28 @@
+name = "creditly-api"
+main = "src/worker.ts"
+compatibility_date = "2024-09-23"
+
+# nodejs_compat lets Prisma's pg driver adapter open TCP connections to Postgres,
+# which Workers otherwise disallow. Required for @prisma/adapter-pg.
+compatibility_flags = ["nodejs_compat"]
+
+# Non-secret config (secrets DATABASE_URL / JWT_SECRET are set via `wrangler secret put`).
+[vars]
+NODE_ENV = "production"
+COOKIE_SECURE = "true"
+JWT_EXPIRES_IN = "1d"
+CRM_FAIL_RATE = "0"
+CRM_MAX_RETRIES = "3"
+CRM_RETRY_BASE_MS = "100"
+
+# Cron Trigger → worker.scheduled → auctionService.sweepExpiredAuctions().
+# Every 5 min is for demo/experimentation; hourly is plenty for a 3-day deadline.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Secrets/config (DATABASE_URL, JWT_SECRET, COOKIE_SECURE, JWT_EXPIRES_IN, CRM_*) are NOT
+# stored here:
+#   • local  → backend/.dev.vars   (gitignored; copy from .dev.vars.example)
+#   • deployed → `wrangler secret put DATABASE_URL` etc.
+# For deploy, point DATABASE_URL at the Supabase transaction pooler:
+#   ...pooler.supabase.com:6543/postgres?pgbouncer=true

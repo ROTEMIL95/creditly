@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, apiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { humanizeEnum } from '../../lib/labels';
 
 interface Account {
   id: string;
@@ -57,7 +58,7 @@ export default function AccountsPage() {
                     {a.customerName}
                   </Link>
                 </td>
-                <td className="px-4 py-2">{a.status}</td>
+                <td className="px-4 py-2">{humanizeEnum(a.status)}</td>
                 <td className="px-4 py-2">${a.amount.toLocaleString()}</td>
                 <td className="px-4 py-2">{a.manager?.name ?? '—'}</td>
                 <td className="px-4 py-2">
