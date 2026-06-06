@@ -22,6 +22,8 @@ dist/
 **/dist/
 .next/
 **/.next/
+out/
+**/out/
 
 # prisma
 backend/prisma/*.db

@@ -54,7 +54,7 @@ export default function AccountsPage() {
             {accounts.map((a) => (
               <tr key={a.id} className="border-t border-slate-100 hover:bg-slate-50">
                 <td className="px-4 py-2">
-                  <Link href={`/accounts/${a.id}`} className="font-medium text-indigo-700 hover:underline">
+                  <Link href={`/accounts/detail?id=${a.id}`} className="font-medium text-indigo-700 hover:underline">
                     {a.customerName}
                   </Link>
                 </td>
