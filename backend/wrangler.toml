@@ -6,6 +6,13 @@ compatibility_date = "2024-09-23"
 # which Workers otherwise disallow. Required for @prisma/adapter-pg.
 compatibility_flags = ["nodejs_compat"]
 
+# Workers Logs / Observability — persists console logs + request metadata, viewable in the
+# Cloudflare dashboard (Workers & Pages → creditly-api → Observability) and live via `wrangler tail`.
+# head_sampling_rate = 1 logs 100% of requests.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 # Non-secret config (secrets DATABASE_URL / JWT_SECRET are set via `wrangler secret put`).
 [vars]
 NODE_ENV = "production"
