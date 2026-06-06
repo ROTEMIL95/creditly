@@ -5,6 +5,13 @@ An internal system to manage customer cases (accounts), system events, and a sec
 **backend architecture, real RBAC, event-driven business logic, and a dedicated
 integration layer** — the UI is intentionally minimal.
 
+## 🔗 Links
+- **GitHub:** https://github.com/ROTEMIL95/creditly
+- **Live system:** https://creditly-web.pages.dev
+- **Live API:** https://creditly-api.rotem-creditly.workers.dev
+
+> Demo logins (password `Password123!` for all): `admin@creditly.dev` · `manager@creditly.dev` · `user@creditly.dev` · `banker.alpha@creditly.dev` · `banker.beta@creditly.dev`
+
 ---
 
 ## 🧱 Tech Stack & Decisions
