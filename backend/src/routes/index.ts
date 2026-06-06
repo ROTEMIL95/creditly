@@ -9,6 +9,7 @@ import { accountController } from '../controllers/accountController.js';
 import { eventController } from '../controllers/eventController.js';
 import { auctionController } from '../controllers/auctionController.js';
 import { analyticsController } from '../controllers/analyticsController.js';
+import { auditController } from '../controllers/auditController.js';
 import { loginSchema, createEventSchema, submitOfferSchema } from './schemas.js';
 import type { AppEnv } from '../types/index.js';
 
@@ -62,6 +63,9 @@ export function buildRoutes() {
 
   // ---- Analytics (admin) ---------------------------------------------------
   api.get('/analytics/summary', requireAuth, requireRole(Role.ADMIN), analyticsController.summary);
+
+  // ---- Audit trail (admin) -------------------------------------------------
+  api.get('/audit', requireAuth, requireRole(Role.ADMIN), auditController.list);
 
   return api;
 }

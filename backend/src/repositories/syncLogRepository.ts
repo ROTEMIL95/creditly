@@ -6,7 +6,7 @@ export const syncLogRepository = {
     return prisma.syncLog.create({ data });
   },
 
-  list() {
-    return prisma.syncLog.findMany({ orderBy: { createdAt: 'desc' } });
+  list(take = 200) {
+    return prisma.syncLog.findMany({ orderBy: { createdAt: 'desc' }, take });
   },
 };

@@ -31,7 +31,7 @@ integration layer** — the UI is intentionally minimal.
 - Deliberately basic: role-based navigation, loading/error states, no visual polish.
 
 ### Testing
-- **Vitest** — 24 unit tests (+ 9 integration) covering the mandated scenarios (see [Testing](#-testing)).
+- **Vitest** — 10 focused tests spanning all layers (one fast `npm test`, no DB) — see [Testing](#-testing).
 
 ---
 
@@ -159,7 +159,7 @@ The assignment lists three optional bonuses. Status in this project:
 | Bonus | Status | Where / notes |
 |---|---|---|
 | **Queue / retry** | ✅ retry implemented | `integration/crmService.ts` — retry + exponential backoff, outcome persisted to `SyncLog`. A durable broker (Redis/RabbitMQ) is **not** included; the retry loop is the documented swap-in point. |
-| **Audit trail** | ✅ via `Event` + `SyncLog` | Every domain action is an immutable `Event` row (who/what/when); every integration attempt is a `SyncLog` row. A generic field-level change log (CDC) is the further step. |
+| **Audit trail** | ✅ dedicated `AuditLog` + admin UI | A cross-cutting `AuditLog` records every action (logins incl. failures, offer submit/update with the rate delta, auction open/close, status changes, CRM syncs) with actor + timestamp, surfaced in an admin **Audit Trail** page. Complemented by `Event` (domain) and `SyncLog` (integration). |
 | **Cloudflare stack** | ✅ deployed (experiment branch) | Live on Workers — see below + [backend/CLOUDFLARE.md](backend/CLOUDFLARE.md). |
 
 ### Queue / retry (✅)
@@ -169,13 +169,14 @@ then records `SyncLog{ status: FAILED, failureReason, attempts }`. Covered by a 
 side-effect off the request path); the dispatcher is the single seam where this is swapped in.
 
 ### Audit trail (✅)
-- **`Event`** — append-only record of every system action: `type`, `accountId`, `createdById`,
-  `createdAt` (+ JSON `payload`). This is the domain audit trail (who did what, when).
-- **`SyncLog`** — audit of every external sync attempt: `trigger`, `status`, `failureReason`,
-  `attempts`, `createdAt`.
-- **Further step:** a generic, table-agnostic change log (e.g. Prisma middleware capturing all
-  mutations, or a Postgres trigger) for field-level history and non-domain actions (logins,
-  RBAC denials).
+- **`AuditLog`** — a comprehensive, admin-only trail of *who did what, when*. A central
+  `auditService.record()` captures **logins (success + failure)**, **offer submit/update with the
+  rate delta** (e.g. `5.5% → 4.25%`), auction open/close, status changes, document uploads, and CRM
+  syncs — each with actor, role, timestamp, and rich metadata. Surfaced at the admin **Audit Trail**
+  page (`GET /api/audit`, admin-only) with a per-action filter.
+- **`Event`** — domain events on accounts (drives the High-Activity rule + the per-account timeline).
+- **`SyncLog`** — every CRM sync attempt (`trigger`, `status`, `failureReason`, `attempts`).
+- **Further step:** field-level before/after diffs via Prisma middleware or a Postgres trigger.
 
 ### Cloudflare stack (✅ deployed — experiment branch)
 The API is **deployed and live** on **Cloudflare Workers** (free plan):
@@ -261,59 +262,36 @@ npm run dev                         # http://localhost:3000
 
 ## 🧪 Testing
 
-Two suites:
+**10 focused tests, one fast command** (`npm test` — no DB: repositories are spied and the logic is
+pure). The suite deliberately spans every architectural layer instead of piling up redundant cases —
+the assignment asks for ≥5; these 10 cover all the mandated areas plus the bonuses, each with a precise intent.
 
 ```bash
 cd backend
-npm test               # 24 unit tests — fast, no DB (repositories spied, logic pure)
-npm run test:integration   # 9 API integration tests — real HTTP + JWT, hits the DB
+npm test
 ```
 
-### Unit (`npm test`) — 24 tests
-1. **RBAC behavior** — bankers blocked from accounts; managers blocked from accounts they don't own.
-2. **Banker cannot see PII** — serializer masks name/phone/email and competitor offers.
-3. **Best offer selection** — lowest rate; tie → earliest; tie → id (deterministic).
-4. **No offers after expiration** — offers past `endsAt` (and on non-OPEN auctions) rejected.
-5. **Integration failure handling** — retries exhausted → `SyncLog` FAILED + `failureReason`.
-6. **Zod ↔ Prisma enum alignment** — every `EventType` passing edge validation is DB-valid;
-   lowercase/unknown rejected; drift guard + `Role` contract (`ADMIN|MANAGER|USER|BANKER`).
-7. **Auction expiry sweeper** (Cloudflare Cron path) — `sweepExpiredAuctions` closes every expired
-   OPEN auction (winner → `WON` + CRM sync; no offers → `EXPIRED`), and one failure doesn't abort the batch.
-
-### Integration (`npm run test:integration`) — 9 tests
-Real API requests via Hono's `app.request()` with **signed role JWTs**, flowing through the full
-pipeline (auth → RBAC → validation → controller → service → serializer) against the database.
-Fixtures are namespaced `itest-` and cleaned up automatically (seed data untouched); they use the
-**direct** DB connection (`DIRECT_URL`). Requires a configured `.env` + migrated DB.
-- **401** for unauthenticated; **403** for a banker listing accounts; **403** for a manager reading
-  another manager's account.
-- **Data masking** — banker `GET /auctions/:id` returns no `customerName/phone/email`; exposes
-  `myOffers` only, never a competitor `offers` list.
-- **Scoped access** — Manager A sees account A and not B; Manager B sees B and not A.
-- **RBAC × business logic** — banker offer on an expired auction → `400 AUCTION_EXPIRED`; on a
-  closed auction → `400 AUCTION_NOT_OPEN`.
-
-### ✅ Tests performed — summary
-
-**33 automated tests passing** (24 unit + 9 integration), plus a full manual end-to-end run
-against the live database — and a live edge run against the deployed Cloudflare Worker.
-
-| Area | Type | What was verified | Status |
+| # | Layer | File | What it verifies |
 |---|---|---|---|
-| RBAC — endpoint guards | unit + integration | unauth → 401; banker → accounts 403; manager → other's account 403 | ✅ |
-| RBAC — PII masking | unit + integration | banker `GET /auctions/:id` never returns name/phone/email | ✅ |
-| RBAC — scoped access | integration | Manager A sees only A's accounts; Manager B only B's | ✅ |
-| Auction — best offer + tie-break | unit | lowest rate; tie → earliest → id (deterministic) | ✅ |
-| Auction — expiry / not-open | unit + integration | offers rejected past `endsAt` / on non-OPEN auctions | ✅ |
-| Business logic — High Activity | manual e2e | >3 events/24h → `isHighActivity = true` | ✅ |
-| Integration — CRM retry/failure | unit | retries exhausted → `SyncLog` FAILED + `failureReason` | ✅ |
-| Validation — Zod ↔ Prisma enums | unit | edge-valid input is always DB-valid; drift guard | ✅ |
-| Full auction flow | manual e2e | open → 2 offers → close → lowest wins, account `WON`, CRM synced | ✅ |
-| Type safety | `tsc --noEmit` | strict TypeScript, no errors | ✅ |
+| 1 | Domain logic (pure) | `auctionLogic` | Best offer = **lowest interest rate**; ties break by earliest submission, then lowest id (deterministic, reproducible). |
+| 2 | Service · RBAC | `rbac` | A **BANKER** cannot list or read accounts → `ForbiddenError` (no route to customer data). |
+| 3 | Service · RBAC | `rbac` | A **MANAGER** is scoped to accounts they own — denied on others, allowed on their own. |
+| 4 | Serializer · PII | `serializer` | A banker's auction view **omits name/phone/email** and exposes only `myOffers` — never a competitor list (Blind model). |
+| 5 | Edge · validation | `validation` | `createEventSchema` accepts **exactly** the Prisma `EventType` set (UPPERCASE) and rejects lowercase/unknown (drift guard). |
+| 6 | Business logic | `businessLogic` | A **4th event within 24h** flips the account to `isHighActivity = true` (the >3/24h rule, via the event dispatcher). |
+| 7 | Service · auction | `auctionExpiry` | Offers are rejected **past `endsAt`** (`AUCTION_EXPIRED`) and on a **non-OPEN** auction (`AUCTION_NOT_OPEN`); nothing is persisted. |
+| 8 | Service · auction | `auctionClose` | Closing an auction marks the **lowest** offer winner, sets the account `WON`, and fires the `WINNING_OFFER_SELECTED` CRM sync. |
+| 9 | Integration | `crmService` | A failing CRM call **retries with backoff**, then records `SyncLog{ status: FAILED, failureReason, attempts }`. |
+| 10 | Audit (cross-cutting) | `auditService` | The audit timeline **merges `AuditLog` + `SyncLog`** newest-first and normalizes CRM entries. |
 
-> Manual end-to-end was run against the seeded Supabase database across all five roles —
-> confirming login, the RBAC matrix, PII masking, the complete auction lifecycle, and the
-> High-Activity rule.
+Mandated areas all covered — RBAC (#2, #3), banker-cannot-see-PII (#4), best-offer selection (#1),
+no-offers-after-expiration (#7), integration-failure handling (#9) — plus business logic (#6),
+validation (#5), and the audit-trail bonus (#10).
+
+> Beyond the automated suite, the full flow was verified **live in a browser** against the deployed
+> Cloudflare stack: login (+ failed login), the RBAC matrix, PII masking, the High-Activity rule, and
+> a complete auction (open → two offers → close → lowest wins, account `WON`, CRM synced) — all
+> surfaced in the admin **Audit Trail**.
 
 ---
 
@@ -363,5 +341,4 @@ against the live database — and a live edge run against the deployed Cloudflar
 | Auction module | `services/auctionService.ts` + pure `services/auctionLogic.ts` |
 | Integration | `integration/crmService.ts` (retry/backoff + SyncLog) |
 | Frontend | `frontend/` (role-based, basic) |
-| Tests | `backend/tests/` (24 unit + 9 integration) |
-| Edge / Cloudflare | `worker.ts`, `config/runtime.ts`, `wrangler.toml` + [backend/CLOUDFLARE.md](backend/CLOUDFLARE.md) |
+| Tests | `backend/tests/` — 10 tests across all layers (`npm test`) |

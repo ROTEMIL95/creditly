@@ -29,4 +29,11 @@ export const offerRepository = {
   markWinner(offerId: string) {
     return prisma.bankOffer.update({ where: { id: offerId }, data: { isWinner: true } });
   },
+
+  // The banker's existing offer on an auction (if any) — used to record the rate delta on update.
+  findByAuctionBanker(auctionId: string, bankerId: string) {
+    return prisma.bankOffer.findUnique({
+      where: { auctionId_bankerId: { auctionId, bankerId } },
+    });
+  },
 };
