@@ -14,7 +14,9 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma migrate reset --force"
+    "db:reset": "prisma migrate reset --force",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "wrangler deploy"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -22,6 +24,7 @@
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "@hono/zod-validator": "^0.4.1",
+    "@prisma/adapter-pg": "^6.1.0",
     "@prisma/client": "^6.1.0",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.7",
@@ -34,6 +37,7 @@
     "prisma": "^6.1.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "wrangler": "^3.99.0"
   }
 }

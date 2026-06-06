@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { api, apiError } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
+import { humanizeEnum } from '../../../lib/labels';
 
 interface Detail {
   account: {
@@ -20,16 +21,22 @@ interface Detail {
   events: { id: string; type: string; createdAt: string }[];
 }
 
-export default function AccountDetailPage() {
-  const { id } = useParams<{ id: string }>();
+function AccountDetail() {
+  // Static export can't pre-render path params, so the account id comes from the query
+  // string (?id=...) and is read client-side. See the link in app/accounts/page.tsx.
+  const id = useSearchParams().get('id');
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [data, setData] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [eventType, setEventType] = useState('NOTE_ADDED');
+  const [note, setNote] = useState('');
+  const [addingEvent, setAddingEvent] = useState(false);
 
   const load = useCallback(() => {
+    if (!id) return;
     api
       .get(`/accounts/${id}`)
       .then((res) => setData(res.data))
@@ -56,6 +63,24 @@ export default function AccountDetailPage() {
     }
   }
 
+  async function addEvent() {
+    setAddingEvent(true);
+    setError('');
+    try {
+      await api.post('/events', {
+        accountId: id,
+        type: eventType,
+        ...(note.trim() ? { payload: { note: note.trim() } } : {}),
+      });
+      setNote('');
+      load(); // refresh events + account (e.g. new High Activity / lastActivity)
+    } catch (err) {
+      setError(apiError(err));
+    } finally {
+      setAddingEvent(false);
+    }
+  }
+
   if (loading) return <p className="text-slate-500">Loading…</p>;
   if (error) return <p className="rounded bg-red-50 px-3 py-2 text-red-700">{error}</p>;
   if (!data) return null;
@@ -79,7 +104,7 @@ export default function AccountDetailPage() {
           )}
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <div><dt className="text-slate-400">Status</dt><dd className="font-medium">{account.status}</dd></div>
+          <div><dt className="text-slate-400">Status</dt><dd className="font-medium">{humanizeEnum(account.status)}</dd></div>
           <div><dt className="text-slate-400">Amount</dt><dd className="font-medium">${account.amount.toLocaleString()}</dd></div>
           <div><dt className="text-slate-400">Manager</dt><dd className="font-medium">{account.manager?.name ?? '—'}</dd></div>
         </dl>
@@ -102,8 +127,8 @@ export default function AccountDetailPage() {
           <ul className="space-y-2 text-sm">
             {auctions.map((a) => (
               <li key={a.id} className="flex justify-between rounded border border-slate-100 px-3 py-2">
-                <span className="font-mono text-xs text-slate-500">{a.id}</span>
-                <span>{a.status}</span>
+                <span className="text-slate-600">Auction · ends {new Date(a.endsAt).toLocaleDateString()}</span>
+                <span className="font-medium">{humanizeEnum(a.status)}</span>
               </li>
             ))}
           </ul>
@@ -112,15 +137,52 @@ export default function AccountDetailPage() {
 
       <section className="rounded-lg border border-slate-200 bg-white p-6">
         <h2 className="mb-3 font-semibold">Events</h2>
+
+        {/* Create event (admin / manager / user). Drives the business logic:
+            >3 events/24h → High Activity; document_uploaded → lastActivity + CRM sync. */}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <select
+            value={eventType}
+            onChange={(e) => setEventType(e.target.value)}
+            className="rounded border border-slate-300 px-2 py-1 text-sm"
+          >
+            <option value="NOTE_ADDED">Note added</option>
+            <option value="STATUS_CHANGED">Status changed</option>
+            <option value="DOCUMENT_UPLOADED">Document uploaded</option>
+          </select>
+          <input
+            type="text"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Note (optional)"
+            className="min-w-48 flex-1 rounded border border-slate-300 px-3 py-1 text-sm"
+          />
+          <button
+            onClick={addEvent}
+            disabled={addingEvent}
+            className="rounded bg-indigo-600 px-3 py-1 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {addingEvent ? 'Adding…' : 'Add event'}
+          </button>
+        </div>
+
         <ul className="space-y-1 text-sm">
           {events.map((e) => (
             <li key={e.id} className="flex justify-between border-b border-slate-50 py-1">
-              <span className="font-medium">{e.type}</span>
+              <span className="font-medium">{humanizeEnum(e.type)}</span>
               <span className="text-slate-400">{new Date(e.createdAt).toLocaleString()}</span>
             </li>
           ))}
         </ul>
       </section>
     </div>
+  );
+}
+
+export default function AccountDetailPage() {
+  return (
+    <Suspense fallback={<p className="text-slate-500">Loading…</p>}>
+      <AccountDetail />
+    </Suspense>
   );
 }

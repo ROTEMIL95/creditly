@@ -3,7 +3,10 @@ import { prisma } from '../config/prisma.js';
 
 const withRelations = {
   account: true,
-  offers: { orderBy: { createdAt: 'asc' } },
+  offers: {
+    include: { bank: { select: { id: true, name: true } } },
+    orderBy: { createdAt: 'asc' },
+  },
 } satisfies Prisma.AuctionOpportunityInclude;
 
 export const auctionRepository = {
@@ -31,6 +34,15 @@ export const auctionRepository = {
   findOpenByAccount(accountId: string) {
     return prisma.auctionOpportunity.findFirst({
       where: { accountId, status: 'OPEN' },
+    });
+  },
+
+  // OPEN auctions whose deadline has passed — fed to the expiry sweeper (cron).
+  // Lean select: the sweeper only needs identity + the actor to attribute the close to.
+  findExpiredOpen(now: Date) {
+    return prisma.auctionOpportunity.findMany({
+      where: { status: 'OPEN', endsAt: { lte: now } },
+      select: { id: true, accountId: true, openedById: true },
     });
   },
 };

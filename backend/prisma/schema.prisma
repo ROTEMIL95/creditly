@@ -3,7 +3,10 @@
 // never rounded (auction tie-break depends on submission order).
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // driverAdapters lets the client run on edge runtimes (e.g. Cloudflare Workers)
+  // via @prisma/adapter-pg, without the Rust query engine. Node path is unaffected.
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {

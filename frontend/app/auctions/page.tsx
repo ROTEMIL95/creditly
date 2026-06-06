@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, apiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { humanizeEnum } from '../../lib/labels';
 
 interface Offer {
   id: string;
   bankId: string;
+  bankName?: string;
   interestRate: number;
   isWinner: boolean;
 }
@@ -80,9 +82,8 @@ export default function AuctionsPage() {
           <div key={a.id} className="rounded-lg border border-slate-200 bg-white p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="font-mono text-xs text-slate-400">{a.id}</p>
-                <p className="mt-1">
-                  <span className="font-medium">{a.status}</span>
+                <p>
+                  <span className="font-medium">{humanizeEnum(a.status)}</span>
                   {a.account && (
                     <span className="ml-2 text-sm text-slate-500">
                       · amount ${a.account.amount.toLocaleString()}
@@ -110,7 +111,8 @@ export default function AuctionsPage() {
                 </p>
                 {a.myOffers && a.myOffers.length > 0 && (
                   <p className="text-sm">
-                    Your offer: <strong>{a.myOffers[0].interestRate}%</strong>
+                    Your offer{a.myOffers[0].bankName ? ` (${a.myOffers[0].bankName})` : ''}:{' '}
+                    <strong>{a.myOffers[0].interestRate}%</strong>
                   </p>
                 )}
                 {a.status === 'OPEN' && (
@@ -141,7 +143,7 @@ export default function AuctionsPage() {
                 <ul className="space-y-1 text-sm">
                   {a.offers.map((o) => (
                     <li key={o.id} className="flex justify-between">
-                      <span className="font-mono text-xs text-slate-500">{o.bankId}</span>
+                      <span className="text-slate-600">{o.bankName ?? o.bankId}</span>
                       <span>
                         {o.interestRate}%{' '}
                         {o.isWinner && <span className="ml-1 rounded bg-green-100 px-2 text-green-700">winner</span>}

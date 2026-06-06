@@ -16,6 +16,8 @@ integration layer** — the UI is intentionally minimal.
   for centralized error handling. Runs on Node via `@hono/node-server`.
 - **Authentication:** JWT (`hono/jwt`), delivered as an httpOnly cookie **and** returned in
   the body so non-cookie clients (and tests) can use a `Bearer` header.
+- **Password hashing:** PBKDF2 via Web Crypto (`crypto.subtle`) — runs identically on Node and
+  Cloudflare Workers and fits the Workers free-plan CPU budget (chosen over bcrypt for portability).
 
 ### Database
 - **Database:** PostgreSQL (hosted on **Supabase** — managed Postgres)
@@ -29,7 +31,7 @@ integration layer** — the UI is intentionally minimal.
 - Deliberately basic: role-based navigation, loading/error states, no visual polish.
 
 ### Testing
-- **Vitest** — 16 tests covering the mandated scenarios (see [Testing](#-testing)).
+- **Vitest** — 24 unit tests (+ 9 integration) covering the mandated scenarios (see [Testing](#-testing)).
 
 ---
 
@@ -158,7 +160,7 @@ The assignment lists three optional bonuses. Status in this project:
 |---|---|---|
 | **Queue / retry** | ✅ retry implemented | `integration/crmService.ts` — retry + exponential backoff, outcome persisted to `SyncLog`. A durable broker (Redis/RabbitMQ) is **not** included; the retry loop is the documented swap-in point. |
 | **Audit trail** | ✅ via `Event` + `SyncLog` | Every domain action is an immutable `Event` row (who/what/when); every integration attempt is a `SyncLog` row. A generic field-level change log (CDC) is the further step. |
-| **Cloudflare stack** | ⚠️ documented, not deployed | Not deployed in this submission. Path below. |
+| **Cloudflare stack** | ✅ deployed (experiment branch) | Live on Workers — see below + [backend/CLOUDFLARE.md](backend/CLOUDFLARE.md). |
 
 ### Queue / retry (✅)
 `crmService.sync()` retries up to `CRM_MAX_RETRIES` with `CRM_RETRY_BASE_MS * 2^n` backoff,
@@ -175,13 +177,20 @@ side-effect off the request path); the dispatcher is the single seam where this 
   mutations, or a Postgres trigger) for field-level history and non-domain actions (logins,
   RBAC denials).
 
-### Cloudflare stack (⚠️ documented)
-Not deployed here. Hono was chosen partly because it runs natively on **Cloudflare Workers**, so
-the path is short:
-- **API** → deploy `backend` as a **Cloudflare Worker** (swap `@hono/node-server` for the Workers
-  adapter; use a Workers-compatible Postgres driver / Prisma Accelerate or Supabase over HTTP).
-- **Frontend** → deploy `frontend` (Next.js) to **Cloudflare Pages**.
-- **Edge** → Cloudflare in front for CDN/DNS/WAF; secrets via Workers env vars.
+### Cloudflare stack (✅ deployed — experiment branch)
+The API is **deployed and live** on **Cloudflare Workers** (free plan):
+`https://creditly-api.rotem-creditly.workers.dev`. Hono is multi-runtime, so the *same* app runs on
+both Node (`server.ts`) and the edge (`worker.ts`) — only a thin platform adapter differs. The
+business layers (controllers/services/repositories) are unchanged.
+- **API** → `@hono/node-server` is kept for Node; `worker.ts` is the edge entry (`fetch` + `scheduled`).
+  Postgres via **`@prisma/adapter-pg` over TCP** (`nodejs_compat`), with a **per-request** client
+  (`AsyncLocalStorage`) — Workers can't share a DB socket across requests.
+- **Password hashing** → PBKDF2 (Web Crypto), not bcrypt, to stay within the Workers CPU budget.
+- **Cron** → a `*/5 * * * *` trigger runs `sweepExpiredAuctions` to auto-close expired auctions.
+- **Secrets** → `DATABASE_URL` / `JWT_SECRET` via `wrangler secret put`; non-secret config in `[vars]`.
+- **Frontend** → deploy `frontend` (Next.js) to **Cloudflare Pages** (not done in this experiment).
+
+Full write-up: [backend/CLOUDFLARE.md](backend/CLOUDFLARE.md). Request/flow diagrams: [backend/FLOW.md](backend/FLOW.md).
 
 ---
 
@@ -221,9 +230,11 @@ npm run db:seed               # seed users, banks, accounts
 npm run dev                   # http://localhost:4000
 ```
 
-> **Supabase + Prisma:** set `DATABASE_URL` to the **transaction pooler** (port 6543,
-> `?pgbouncer=true`) and `DIRECT_URL` to the **direct** connection (port 5432) used for
-> migrations. Both are in `.env.example`.
+> **Supabase + Prisma:** this single long-running server uses the **session connection**
+> (port 5432) for `DATABASE_URL` — it's more stable than the transaction pooler (6543), which
+> targets serverless/edge and drops idle connections on the free tier (causes intermittent
+> `P1001`). `DIRECT_URL` (5432) is used for migrations. Both are in `.env.example`. For a
+> serverless/edge deploy, switch `DATABASE_URL` to the 6543 pooler with `?pgbouncer=true`.
 
 ### Frontend
 ```bash
@@ -234,13 +245,17 @@ npm run dev                         # http://localhost:3000
 ```
 
 ### Seeded accounts (password for all: `Password123!`)
-| Email | Role |
-|---|---|
-| `admin@creditly.dev` | ADMIN |
-| `manager@creditly.dev` | MANAGER |
-| `user@creditly.dev` | USER |
-| `banker.alpha@creditly.dev` | BANKER (Bank Alpha — eligible for all) |
-| `banker.beta@creditly.dev` | BANKER (Bank Beta — high-value accounts only) |
+| Email | Role | Manages |
+|---|---|---|
+| `admin@creditly.dev` | ADMIN | — (sees everything) |
+| `manager@creditly.dev` | MANAGER | Mike — John Doe, Jane Smith |
+| `manager2@creditly.dev` | MANAGER | Sarah — Emma Wilson, Liam Brown |
+| `manager3@creditly.dev` | MANAGER | David — Olivia Davis, Noah Miller |
+| `user@creditly.dev` | USER | — (related accounts only) |
+| `banker.alpha@creditly.dev` | BANKER | Bank Hapoalim — eligible for all auctions |
+| `banker.beta@creditly.dev` | BANKER | Bank Leumi — high-value accounts only |
+
+> 3 managers × 2 accounts = 6 customer accounts; each manager sees only their own (scoped RBAC).
 
 ---
 
@@ -250,11 +265,11 @@ Two suites:
 
 ```bash
 cd backend
-npm test               # 21 unit tests — fast, no DB (repositories spied, logic pure)
+npm test               # 24 unit tests — fast, no DB (repositories spied, logic pure)
 npm run test:integration   # 9 API integration tests — real HTTP + JWT, hits the DB
 ```
 
-### Unit (`npm test`) — 21 tests
+### Unit (`npm test`) — 24 tests
 1. **RBAC behavior** — bankers blocked from accounts; managers blocked from accounts they don't own.
 2. **Banker cannot see PII** — serializer masks name/phone/email and competitor offers.
 3. **Best offer selection** — lowest rate; tie → earliest; tie → id (deterministic).
@@ -262,6 +277,8 @@ npm run test:integration   # 9 API integration tests — real HTTP + JWT, hits t
 5. **Integration failure handling** — retries exhausted → `SyncLog` FAILED + `failureReason`.
 6. **Zod ↔ Prisma enum alignment** — every `EventType` passing edge validation is DB-valid;
    lowercase/unknown rejected; drift guard + `Role` contract (`ADMIN|MANAGER|USER|BANKER`).
+7. **Auction expiry sweeper** (Cloudflare Cron path) — `sweepExpiredAuctions` closes every expired
+   OPEN auction (winner → `WON` + CRM sync; no offers → `EXPIRED`), and one failure doesn't abort the batch.
 
 ### Integration (`npm run test:integration`) — 9 tests
 Real API requests via Hono's `app.request()` with **signed role JWTs**, flowing through the full
@@ -278,8 +295,8 @@ Fixtures are namespaced `itest-` and cleaned up automatically (seed data untouch
 
 ### ✅ Tests performed — summary
 
-**30 automated tests passing** (21 unit + 9 integration), plus a full manual end-to-end run
-against the live database.
+**33 automated tests passing** (24 unit + 9 integration), plus a full manual end-to-end run
+against the live database — and a live edge run against the deployed Cloudflare Worker.
 
 | Area | Type | What was verified | Status |
 |---|---|---|---|
@@ -330,8 +347,8 @@ against the live database.
   ("High Activity"), so inventing LOW/MEDIUM with no rules would be misleading.
 - **One open auction per account** at a time (guarded on open).
 - **Bank eligibility** is modeled simply as `account.amount >= bank.minAmount`.
-- **Expiry** is enforced lazily (offers rejected past `endsAt`) plus an explicit close endpoint;
-  a scheduled sweeper would be the production addition.
+- **Expiry** is enforced lazily (offers rejected past `endsAt`) and via an explicit close endpoint,
+  **plus** a Cloudflare Cron sweeper (`sweepExpiredAuctions`) that auto-closes expired auctions.
 - Analytics summary is **admin-only** (system-wide dashboard).
 
 ---
@@ -346,4 +363,5 @@ against the live database.
 | Auction module | `services/auctionService.ts` + pure `services/auctionLogic.ts` |
 | Integration | `integration/crmService.ts` (retry/backoff + SyncLog) |
 | Frontend | `frontend/` (role-based, basic) |
-| Tests | `backend/tests/` (16 passing) |
+| Tests | `backend/tests/` (24 unit + 9 integration) |
+| Edge / Cloudflare | `worker.ts`, `config/runtime.ts`, `wrangler.toml` + [backend/CLOUDFLARE.md](backend/CLOUDFLARE.md) |

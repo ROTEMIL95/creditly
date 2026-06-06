@@ -42,11 +42,12 @@ export function serializeAccountForBanker(account: Pick<Account, 'id' | 'status'
 
 // ---- Offer -----------------------------------------------------------------
 
-export function serializeOffer(offer: BankOffer) {
+export function serializeOffer(offer: BankOffer & { bank?: { id: string; name: string } }) {
   return {
     id: offer.id,
     auctionId: offer.auctionId,
     bankId: offer.bankId,
+    bankName: offer.bank?.name,
     bankerId: offer.bankerId,
     interestRate: decimal(offer.interestRate),
     isWinner: offer.isWinner,

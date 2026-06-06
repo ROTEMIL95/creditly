@@ -15,6 +15,11 @@ export function Nav() {
           Creditly
         </Link>
         <nav className="flex items-center gap-4 text-sm">
+          {user && user.role === 'ADMIN' && (
+            <Link href="/analytics" className="hover:text-indigo-700">
+              Dashboard
+            </Link>
+          )}
           {user && user.role !== 'BANKER' && (
             <Link href="/accounts" className="hover:text-indigo-700">
               Accounts

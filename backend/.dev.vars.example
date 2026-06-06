@@ -1,0 +1,11 @@
+# wrangler dev loads these into the worker as bindings (like .env, but for Workers).
+# Copy to `.dev.vars` (gitignored) and fill with your real values — the same ones from
+# backend/.env. For edge, prefer the Supabase transaction pooler for DATABASE_URL.
+DATABASE_URL="postgresql://postgres.<PROJECT_REF>:<DB_PASSWORD>@aws-1-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true"
+JWT_SECRET="change-me-in-production-please-use-a-long-random-string"
+JWT_EXPIRES_IN="1d"
+NODE_ENV="development"
+COOKIE_SECURE="false"
+CRM_FAIL_RATE="0"
+CRM_MAX_RETRIES="3"
+CRM_RETRY_BASE_MS="100"

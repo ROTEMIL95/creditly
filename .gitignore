@@ -10,11 +10,20 @@ node_modules/
 !**/.env.example
 !**/.env.local.example
 
+# wrangler / cloudflare workers local secrets (keep the *.example template)
+.dev.vars
+**/.dev.vars
+!**/.dev.vars.example
+.wrangler/
+**/.wrangler/
+
 # build output
 dist/
 **/dist/
 .next/
 **/.next/
+out/
+**/out/
 
 # prisma
 backend/prisma/*.db
